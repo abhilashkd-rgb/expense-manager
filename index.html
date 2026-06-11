@@ -1051,8 +1051,9 @@ function toast(msg, type = '') {
 
 // ─── Google Drive Integration ─────────────────────────────────────────────────
 const GDRIVE_CLIENT_ID = '963945218551-0a22amggm4ba39illdlpj8rgdve9fkjv.apps.googleusercontent.com';
-const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 const CSV_FILENAME = 'expensemanager.csv';
+const KNOWN_FILE_ID = '1r-bPY1wtjm8NDvOGtp79BIcX-Kb0BvDk';
 
 let gdriveToken = null;
 let gdriveFileId = null;
@@ -1094,19 +1095,30 @@ async function onGDriveConnected() {
 }
 
 async function findOrCreateCSV() {
-  // Search Drive for ANY csv file
-  const q = encodeURIComponent(`(mimeType='text/csv' or name contains '.csv') and trashed=false`);
+  // First try the known file ID directly
+  try {
+    const check = await fetch(`https://www.googleapis.com/drive/v3/files/${KNOWN_FILE_ID}?fields=id,name,modifiedTime`, {
+      headers: { Authorization: `Bearer ${gdriveToken}` }
+    });
+    if (check.ok) {
+      const f = await check.json();
+      gdriveFileId = f.id;
+      toast(`Found ${f.name} on Drive`, 'success');
+      return;
+    }
+  } catch {}
+
+  // Fallback: broad search for any CSV-like file
+  const q = encodeURIComponent(`trashed=false and (name contains '.csv' or mimeType='text/csv' or mimeType='text/plain')`);
   const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime desc&pageSize=50`, {
     headers: { Authorization: `Bearer ${gdriveToken}` }
   });
   const data = await res.json();
   if (data.files && data.files.length > 0) {
     if (data.files.length === 1) {
-      // Only one CSV — use it directly
       gdriveFileId = data.files[0].id;
       toast(`Found ${data.files[0].name} on Drive`, 'success');
     } else {
-      // Multiple CSVs — let user pick
       showDrivePicker(data.files);
       return 'pick';
     }
