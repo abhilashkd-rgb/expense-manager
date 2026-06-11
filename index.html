@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Manager</title>
+<script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --surface2: #273349; --border: #334155;
+    --text: #e2e8f0; --text2: #94a3b8; --accent: #3b82f6; --accent2: #1d4ed8;
+    --green: #22c55e; --red: #ef4444; --yellow: #f59e0b; --purple: #a855f7;
+    --radius: 10px; --radius-sm: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; font-size: 14px; min-height: 100vh; }
+
+  /* Layout */
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 16px; display: flex; align-items: center; gap: 12px; height: 52px; flex-shrink: 0; }
+  .topbar h1 { font-size: 16px; font-weight: 700; color: var(--accent); flex: 1; }
+  .content { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; padding: 12px 0; }
+  .main { flex: 1; overflow-y: auto; padding: 16px; }
+
+  /* Sidebar */
+  .sidebar-section { padding: 0 12px 12px; }
+  .sidebar-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; padding: 0 4px; }
+  .sidebar-item { padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text2); font-size: 13px; display: flex; align-items: center; gap: 8px; transition: background .15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar-item:hover { background: var(--surface2); color: var(--text); }
+  .sidebar-item.active { background: var(--accent2); color: white; }
+  .sidebar-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .sidebar-item .count { margin-left: auto; font-size: 11px; background: var(--border); padding: 1px 5px; border-radius: 10px; }
+  .sidebar-divider { height: 1px; background: var(--border); margin: 8px 12px; }
+
+  /* Summary bar */
+  .summary-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; flex: 1; min-width: 140px; }
+  .summary-card .label { font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+  .summary-card .value { font-size: 20px; font-weight: 700; }
+  .summary-card .value.income { color: var(--green); }
+  .summary-card .value.expense { color: var(--red); }
+  .summary-card .value.balance { color: var(--accent); }
+
+  /* Filter bar */
+  .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filter-bar input, .filter-bar select { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: var(--radius-sm); font-size: 13px; outline: none; }
+  .filter-bar input:focus, .filter-bar select:focus { border-color: var(--accent); }
+  .filter-bar input[type=text] { flex: 1; min-width: 160px; }
+  .filter-bar select { min-width: 130px; }
+
+  /* Table */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { background: var(--surface2); padding: 10px 12px; text-align: left; font-size: 12px; color: var(--text2); font-weight: 600; white-space: nowrap; cursor: pointer; user-select: none; }
+  thead th:hover { color: var(--text); }
+  thead th .sort-icon { margin-left: 4px; }
+  tbody tr { border-top: 1px solid var(--border); transition: background .1s; cursor: pointer; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td { padding: 9px 12px; font-size: 13px; }
+  .amount-pos { color: var(--green); font-weight: 600; }
+  .amount-neg { color: var(--red); font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 500; }
+  .badge-blue { background: #1e3a5f; color: #60a5fa; }
+  .badge-green { background: #14361e; color: #4ade80; }
+  .badge-orange { background: #3d2000; color: #fb923c; }
+  .badge-purple { background: #2e1a47; color: #c084fc; }
+  .badge-gray { background: var(--border); color: var(--text2); }
+  .no-data { text-align: center; padding: 48px; color: var(--text2); }
+
+  /* Pagination */
+  .pagination { display: flex; align-items: center; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+  .pagination button { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; }
+  .pagination button:hover:not(:disabled) { background: var(--surface2); }
+  .pagination button:disabled { opacity: .4; cursor: default; }
+  .pagination .page-info { color: var(--text2); font-size: 13px; }
+
+  /* Buttons */
+  .btn { padding: 8px 16px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: opacity .15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-green { background: var(--green); color: white; }
+  .btn-red { background: var(--red); color: white; }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text2); }
+  .btn-ghost:hover { color: var(--text); background: var(--surface2); opacity: 1; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-header h2 { font-size: 16px; font-weight: 600; }
+  .modal-body { padding: 20px; }
+  .modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+  .close-btn { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 20px; line-height: 1; padding: 2px; }
+  .close-btn:hover { color: var(--text); }
+
+  /* Form */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group.full { grid-column: 1 / -1; }
+  .form-group label { font-size: 12px; color: var(--text2); font-weight: 500; }
+  .form-group input, .form-group select, .form-group textarea { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: var(--radius-sm); font-size: 13px; outline: none; width: 100%; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+  .form-group textarea { resize: vertical; min-height: 60px; }
+  .type-toggle { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .type-toggle button { flex: 1; padding: 8px; border: none; background: var(--bg); color: var(--text2); cursor: pointer; font-size: 13px; font-weight: 500; transition: background .15s, color .15s; }
+  .type-toggle button.active-expense { background: var(--red); color: white; }
+  .type-toggle button.active-income { background: var(--green); color: white; }
+  .type-toggle button.active-transfer { background: var(--purple); color: white; }
+
+  /* Receipt scanner */
+  .scan-area { border: 2px dashed var(--border); border-radius: var(--radius); padding: 24px; text-align: center; margin-bottom: 12px; cursor: pointer; transition: border-color .2s; }
+  .scan-area:hover { border-color: var(--accent); }
+  .scan-area.dragover { border-color: var(--accent); background: rgba(59,130,246,.05); }
+  .scan-preview { max-width: 100%; max-height: 200px; border-radius: var(--radius-sm); margin-top: 12px; }
+  .scan-result { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; margin-top: 10px; font-size: 12px; color: var(--text2); white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+  .progress-bar { background: var(--border); border-radius: 99px; height: 4px; overflow: hidden; margin-top: 8px; }
+  .progress-fill { background: var(--accent); height: 100%; transition: width .3s; border-radius: 99px; }
+
+  /* Upload zone */
+  .upload-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px; }
+  .upload-icon { font-size: 48px; }
+
+  /* Toast */
+  .toast-container { position: fixed; top: 16px; right: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+  .toast { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 16px; font-size: 13px; animation: slide-in .2s ease; max-width: 300px; }
+  .toast.success { border-color: var(--green); color: var(--green); }
+  .toast.error { border-color: var(--red); color: var(--red); }
+  @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .sidebar { display: none; }
+    .form-grid { grid-template-columns: 1fr; }
+    .summary-card { min-width: 100px; }
+  }
+
+  /* Hidden */
+  .hidden { display: none !important; }
+
+  /* Detail view */
+  .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid var(--border); gap: 12px; }
+  .detail-row:last-child { border: none; }
+  .detail-key { color: var(--text2); font-size: 12px; width: 140px; flex-shrink: 0; }
+  .detail-val { font-size: 13px; word-break: break-word; }
+
+  .topbar-actions { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Top bar -->
+  <div class="topbar">
+    <h1>💰 Expense Manager</h1>
+    <div class="topbar-actions" id="topbarActions">
+      <button class="btn btn-ghost btn-sm" onclick="openLoadModal()">📂 Load CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddModal()" id="btnAdd" style="display:none">+ Add Entry</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportCSV()" id="btnExport" style="display:none">⬇ Export CSV</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Views</div>
+        <div class="sidebar-item active" onclick="setView('all',this)">📋 All Transactions</div>
+        <div class="sidebar-item" onclick="setView('expense',this)">📤 Expenses</div>
+        <div class="sidebar-item" onclick="setView('income',this)">📥 Income</div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Accounts</div>
+        <div id="sidebarAccounts"></div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Payment Methods</div>
+        <div id="sidebarPayments"></div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="main" id="mainContent">
+      <!-- Upload state -->
+      <div id="uploadState" class="upload-zone">
+        <div class="upload-icon">📊</div>
+        <div style="font-size:18px;font-weight:600;">Load your expense CSV</div>
+        <div style="color:var(--text2);text-align:center;max-width:320px;">Open your expensemanager.csv file exported from the app. All processing happens locally in your browser.</div>
+        <button class="btn btn-primary" onclick="openLoadModal()">📂 Choose CSV File</button>
+        <div style="color:var(--text2);font-size:12px;">or drag and drop a CSV file anywhere on this page</div>
+      </div>
+
+      <!-- Data state -->
+      <div id="dataState" class="hidden">
+        <div class="summary-bar" id="summaryBar"></div>
+        <div class="filter-bar">
+          <input type="text" id="searchInput" placeholder="Search description, payee, category..." oninput="applyFilters()">
+          <select id="filterCategory" onchange="applyFilters()"><option value="">All Categories</option></select>
+          <select id="filterPayment" onchange="applyFilters()"><option value="">All Payment Methods</option></select>
+          <select id="filterAccount" onchange="applyFilters()"><option value="">All Accounts</option></select>
+          <input type="date" id="filterFrom" onchange="applyFilters()" title="From date">
+          <input type="date" id="filterTo" onchange="applyFilters()" title="To date">
+          <button class="btn btn-ghost btn-sm" onclick="clearFilters()">✕ Clear</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th onclick="sortBy('Date')">Date <span class="sort-icon" id="sort-Date"></span></th>
+                <th onclick="sortBy('Description')">Description <span class="sort-icon" id="sort-Description"></span></th>
+                <th onclick="sortBy('Category')">Category <span class="sort-icon" id="sort-Category"></span></th>
+                <th onclick="sortBy('Payment Method')">Payment <span class="sort-icon" id="sort-Payment Method"></span></th>
+                <th onclick="sortBy('Account')">Account <span class="sort-icon" id="sort-Account"></span></th>
+                <th onclick="sortBy('Amount')" style="text-align:right">Amount <span class="sort-icon" id="sort-Amount"></span></th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+          <div id="noDataMsg" class="no-data hidden">No transactions match your filters.</div>
+        </div>
+        <div class="pagination">
+          <button onclick="prevPage()" id="btnPrev">← Prev</button>
+          <span class="page-info" id="pageInfo"></span>
+          <button onclick="nextPage()" id="btnNext">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Load CSV Modal -->
+<div class="modal-overlay hidden" id="loadModal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h2>Load CSV File</h2>
+      <button class="close-btn" onclick="closeModal('loadModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="scan-area" id="csvDropZone" onclick="document.getElementById('csvFileInput').click()" ondragover="csvDragOver(event)" ondrop="csvDrop(event)">
+        <div style="font-size:32px;margin-bottom:8px">📄</div>
+        <div style="color:var(--text2)">Click to browse or drag & drop your <strong style="color:var(--text)">expensemanager.csv</strong></div>
+        <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="loadCSVFile(this)">
+      </div>
+      <div style="color:var(--text2);font-size:12px;margin-top:8px">Your data never leaves your browser. Everything is processed locally.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Entry Modal -->
+<div class="modal-overlay hidden" id="addModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="addModalTitle">Add Transaction</h2>
+      <button class="close-btn" onclick="closeModal('addModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <!-- Receipt Scanner -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)">📷 SCAN RECEIPT (optional)</div>
+        <div class="scan-area" id="receiptDropZone" onclick="document.getElementById('receiptInput').click()" ondragover="dragOver(event)" ondrop="receiptDrop(event)">
+          <div style="font-size:24px;margin-bottom:6px">🧾</div>
+          <div style="color:var(--text2);font-size:13px">Click or drop receipt image to auto-fill fields</div>
+          <input type="file" id="receiptInput" accept="image/*" capture="environment" class="hidden" onchange="handleReceiptFile(this)">
+          <img id="scanPreview" class="scan-preview hidden">
+        </div>
+        <div id="scanProgress" class="hidden">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:4px" id="scanStatus">Processing...</div>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        </div>
+        <div id="scanRawText" class="scan-result hidden"></div>
+      </div>
+
+      <!-- Transaction type -->
+      <div class="form-group full" style="margin-bottom:12px">
+        <label>Type</label>
+        <div class="type-toggle">
+          <button id="typeExpense" class="active-expense" onclick="setType('expense')">📤 Expense</button>
+          <button id="typeIncome" onclick="setType('income')">📥 Income</button>
+          <button id="typeTransfer" onclick="setType('transfer')">🔄 Transfer</button>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="fDate">
+        </div>
+        <div class="form-group">
+          <label>Amount *</label>
+          <input type="number" id="fAmount" placeholder="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="fCategory" onchange="updateSubcategories()">
+            <option value="">Select category</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Subcategory</label>
+          <select id="fSubcategory">
+            <option value="">Select subcategory</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Payment Method</label>
+          <select id="fPaymentMethod">
+            <option value="">Select payment method</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Account</label>
+          <select id="fAccount">
+            <option value="">Select account</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label>Description</label>
+          <input type="text" id="fDescription" placeholder="What was this for?">
+        </div>
+        <div class="form-group">
+          <label>Payee / Payer</label>
+          <input type="text" id="fPayee" placeholder="Merchant or person">
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="fStatus">
+            <option value="Cleared">Cleared</option>
+            <option value="Pending">Pending</option>
+            <option value="Reconciled">Reconciled</option>
+            <option value="Void">Void</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Ref / Check No</label>
+          <input type="text" id="fRef" placeholder="Optional">
+        </div>
+        <div class="form-group">
+          <label>Tag</label>
+          <input type="text" id="fTag" placeholder="Optional">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('addModal')">Cancel</button>
+      <button class="btn btn-red btn-sm" id="btnDelete" onclick="deleteEntry()" style="display:none">Delete</button>
+      <button class="btn btn-primary" onclick="saveEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay hidden" id="detailModal">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h2>Transaction Detail</h2>
+      <button class="close-btn" onclick="closeModal('detailModal')">×</button>
+    </div>
+    <div class="modal-body" id="detailBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('detailModal')">Close</button>
+      <button class="btn btn-primary" id="btnEditDetail" onclick="editFromDetail()">Edit</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let allRows = [];
+let filteredRows = [];
+let currentPage = 1;
+const PAGE_SIZE = 50;
+let sortCol = 'Date';
+let sortDir = -1; // -1 desc, 1 asc
+let currentView = 'all';
+let editingRowId = null;
+let detailRowId = null;
+let csvHeaders = [];
+
+const CATEGORIES = {
+  'Food': ['Groceries','Restaurant','Coffee','Fast Food','Other'],
+  'Utilities': ['Electric','Gas','Water','Telephone','Internet','Other'],
+  'Transportation': ['Fuel','Public Transport','Parking','Maintenance','Other'],
+  'Automobile': ['Fuel','Insurance','Maintenance','Parking','Other'],
+  'Entertainment': ['Movies','Party','Games','Subscription','Other'],
+  'Health Care': ['Doctor','Medicine','Health Insurance','Gym','Other'],
+  'Household': ['Rent','Furniture','Consumables','Maintenance','Other'],
+  'Personal': ['Clothing','Beauty','Education','Other'],
+  'Family': ['Child Care','Education','Other'],
+  'Insurance': ['Health','Life','Car','Other'],
+  'Travel': ['Hotel','Flight','Transport','Food','Other'],
+  'Vacation': ['Hotel','Flight','Activities','Other'],
+  'Income': ['Salary','Bonus','Freelance','Investment','Other'],
+  'Tax': ['Income Tax','Property Tax','Other'],
+  'Loans': ['EMI','Interest','Other'],
+  'Home Office': ['Equipment','Supplies','Other'],
+  'Account Transfer': [],
+  'Other': [],
+  'Uncategorized': [],
+};
+
+const PAYMENT_METHODS = ['Cash','Credit Card','Debit','Electronic Transfer','Idemitsu','PayPay','Account Transfer'];
+const ACCOUNT_COLORS = ['#3b82f6','#22c55e','#f59e0b','#a855f7','#ef4444','#06b6d4','#f97316','#84cc16'];
+
+// ─── CSV Parsing ──────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.split('\n').map(l => l.trimEnd());
+  // Find header line (first line containing "Date,Amount")
+  let headerIdx = lines.findIndex(l => l.startsWith('Date,'));
+  if (headerIdx === -1) headerIdx = 0;
+  csvHeaders = parseCSVLine(lines[headerIdx]);
+  const rows = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const vals = parseCSVLine(lines[i]);
+    if (vals.length < 2) continue;
+    const row = {};
+    csvHeaders.forEach((h, idx) => row[h] = (vals[idx] || '').trim());
+    if (!row['Date'] || !row['Amount']) continue;
+    row['Amount'] = parseFloat(row['Amount']) || 0;
+    row['_id'] = i;
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let inQuotes = false, cur = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQuotes = !inQuotes; continue; }
+    if (c === ',' && !inQuotes) { result.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  result.push(cur);
+  return result;
+}
+
+function toCSV(rows) {
+  const header = csvHeaders.length ? csvHeaders : ['Date','Amount','Category','Subcategory','Payment Method','Description','Ref/Check No','Payee/Payer','Status','Receipt Picture','Account','Tag','Tax','Quantity','Split Total','Row Id','Type Id'];
+  const escape = v => (String(v || '').includes(',') || String(v || '').includes('"') || String(v || '').includes('\n')) ? `"${String(v).replace(/"/g,'""')}"` : String(v || '');
+  const lines = ['\n', header.join(',')];
+  rows.forEach(r => {
+    lines.push(header.map(h => {
+      if (h === 'Amount') return r[h] != null ? r[h] : '';
+      return escape(r[h] || '');
+    }).join(','));
+  });
+  return lines.join('\n');
+}
+
+// ─── Load CSV ─────────────────────────────────────────────────────────────────
+function loadCSVFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    allRows = parseCSV(e.target.result);
+    closeModal('loadModal');
+    initApp();
+    toast(`Loaded ${allRows.length} transactions`, 'success');
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+function initApp() {
+  document.getElementById('uploadState').classList.add('hidden');
+  document.getElementById('dataState').classList.remove('hidden');
+  document.getElementById('btnAdd').style.display = '';
+  document.getElementById('btnExport').style.display = '';
+  populateFilters();
+  buildSidebar();
+  applyFilters();
+}
+
+// ─── Filters & Sort ───────────────────────────────────────────────────────────
+function applyFilters() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const cat = document.getElementById('filterCategory').value;
+  const pay = document.getElementById('filterPayment').value;
+  const acc = document.getElementById('filterAccount').value;
+  const from = document.getElementById('filterFrom').value;
+  const to = document.getElementById('filterTo').value;
+
+  filteredRows = allRows.filter(r => {
+    if (currentView === 'expense' && r['Amount'] >= 0) return false;
+    if (currentView === 'income' && r['Amount'] < 0) return false;
+    if (cat && r['Category'] !== cat) return false;
+    if (pay && r['Payment Method'] !== pay) return false;
+    if (acc && r['Account'] !== acc) return false;
+    if (from && r['Date'] < from) return false;
+    if (to && r['Date'] > to) return false;
+    if (search) {
+      const hay = [r['Description'],r['Category'],r['Payee/Payer'],r['Account'],r['Tag']].join(' ').toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  filteredRows.sort((a, b) => {
+    let va = a[sortCol], vb = b[sortCol];
+    if (sortCol === 'Amount') { va = parseFloat(va)||0; vb = parseFloat(vb)||0; }
+    if (va < vb) return -1 * sortDir;
+    if (va > vb) return 1 * sortDir;
+    return 0;
+  });
+
+  currentPage = 1;
+  renderTable();
+  updateSummary();
+}
+
+function sortBy(col) {
+  if (sortCol === col) sortDir *= -1;
+  else { sortCol = col; sortDir = -1; }
+  document.querySelectorAll('[id^="sort-"]').forEach(el => el.textContent = '');
+  document.getElementById('sort-' + col).textContent = sortDir === -1 ? '↓' : '↑';
+  applyFilters();
+}
+
+function clearFilters() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('filterCategory').value = '';
+  document.getElementById('filterPayment').value = '';
+  document.getElementById('filterAccount').value = '';
+  document.getElementById('filterFrom').value = '';
+  document.getElementById('filterTo').value = '';
+  applyFilters();
+}
+
+function setView(view, el) {
+  currentView = view;
+  document.querySelectorAll('.sidebar-item').forEach(e => e.classList.remove('active'));
+  if (el) el.classList.add('active');
+  applyFilters();
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function renderTable() {
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = filteredRows.slice(start, start + PAGE_SIZE);
+  const tbody = document.getElementById('tableBody');
+  const noData = document.getElementById('noDataMsg');
+
+  if (pageRows.length === 0) {
+    tbody.innerHTML = '';
+    noData.classList.remove('hidden');
+  } else {
+    noData.classList.add('hidden');
+    tbody.innerHTML = pageRows.map(r => {
+      const amt = r['Amount'];
+      const amtClass = amt >= 0 ? 'amount-pos' : 'amount-neg';
+      const amtStr = (amt >= 0 ? '+' : '') + amt.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:2});
+      const cat = r['Category'] || '';
+      const badge = categoryBadge(cat);
+      return `<tr onclick="showDetail(${r['_id']})">
+        <td>${r['Date'] || ''}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r['Description'] || r['Payee/Payer'] || '—'}</td>
+        <td><span class="badge ${badge}">${cat || '—'}</span></td>
+        <td style="color:var(--text2)">${r['Payment Method'] || '—'}</td>
+        <td style="color:var(--text2);font-size:12px">${r['Account'] || '—'}</td>
+        <td style="text-align:right" class="${amtClass}">${amtStr}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  const total = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages} (${total} rows)`;
+  document.getElementById('btnPrev').disabled = currentPage <= 1;
+  document.getElementById('btnNext').disabled = currentPage >= totalPages;
+}
+
+function categoryBadge(cat) {
+  const map = {
+    'Food':'badge-green','Income':'badge-blue','Entertainment':'badge-orange',
+    'Health Care':'badge-purple','Travel':'badge-purple','Vacation':'badge-purple',
+    'Utilities':'badge-blue','Transportation':'badge-orange','Automobile':'badge-orange',
+  };
+  return map[cat] || 'badge-gray';
+}
+
+function updateSummary() {
+  const income = filteredRows.filter(r => r['Amount'] > 0).reduce((s,r) => s + r['Amount'], 0);
+  const expense = filteredRows.filter(r => r['Amount'] < 0).reduce((s,r) => s + r['Amount'], 0);
+  const balance = income + expense;
+  const fmt = v => Math.abs(v).toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0});
+  document.getElementById('summaryBar').innerHTML = `
+    <div class="summary-card"><div class="label">Income</div><div class="value income">+${fmt(income)}</div></div>
+    <div class="summary-card"><div class="label">Expenses</div><div class="value expense">-${fmt(Math.abs(expense))}</div></div>
+    <div class="summary-card"><div class="label">Balance</div><div class="value balance ${balance >= 0 ? 'income' : 'expense'}">${balance >= 0 ? '+' : ''}${fmt(balance)}</div></div>
+    <div class="summary-card"><div class="label">Transactions</div><div class="value" style="color:var(--text)">${filteredRows.length}</div></div>
+  `;
+}
+
+function populateFilters() {
+  const cats = [...new Set(allRows.map(r => r['Category']).filter(Boolean))].sort();
+  const pays = [...new Set(allRows.map(r => r['Payment Method']).filter(Boolean))].sort();
+  const accs = [...new Set(allRows.map(r => r['Account']).filter(Boolean))].sort();
+
+  const sel = (id, opts) => {
+    const el = document.getElementById(id);
+    const cur = el.value;
+    const first = el.options[0].outerHTML;
+    el.innerHTML = first + opts.map(o => `<option value="${o}">${o}</option>`).join('');
+    el.value = cur;
+  };
+  sel('filterCategory', cats);
+  sel('filterPayment', pays);
+  sel('filterAccount', accs);
+
+  // Form selects
+  const fCat = document.getElementById('fCategory');
+  fCat.innerHTML = '<option value="">Select category</option>' + Object.keys(CATEGORIES).sort().map(c => `<option value="${c}">${c}</option>`).join('');
+
+  const fPay = document.getElementById('fPaymentMethod');
+  fPay.innerHTML = '<option value="">Select payment method</option>' + pays.map(p => `<option value="${p}">${p}</option>`).join('');
+
+  const fAcc = document.getElementById('fAccount');
+  fAcc.innerHTML = '<option value="">Select account</option>' + accs.map(a => `<option value="${a}">${a}</option>`).join('');
+}
+
+function buildSidebar() {
+  const accs = [...new Set(allRows.map(r => r['Account']).filter(Boolean))].sort();
+  const pays = [...new Set(allRows.map(r => r['Payment Method']).filter(Boolean))].sort();
+
+  const accCounts = {};
+  const payCounts = {};
+  allRows.forEach(r => {
+    if (r['Account']) accCounts[r['Account']] = (accCounts[r['Account']] || 0) + 1;
+    if (r['Payment Method']) payCounts[r['Payment Method']] = (payCounts[r['Payment Method']] || 0) + 1;
+  });
+
+  document.getElementById('sidebarAccounts').innerHTML = accs.map((a, i) => {
+    const color = ACCOUNT_COLORS[i % ACCOUNT_COLORS.length];
+    return `<div class="sidebar-item" onclick="filterByAccount('${a.replace(/'/g,"\\'")}',this)" title="${a}">
+      <span class="dot" style="background:${color}"></span>${a}<span class="count">${accCounts[a]}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('sidebarPayments').innerHTML = pays.map(p => `
+    <div class="sidebar-item" onclick="filterByPayment('${p.replace(/'/g,"\\'")}',this)">
+      ${paymentIcon(p)} ${p}<span class="count">${payCounts[p]}</span>
+    </div>`).join('');
+}
+
+function paymentIcon(p) {
+  const icons = {'Cash':'💵','Credit Card':'💳','Debit':'🏦','PayPay':'📱','Electronic Transfer':'🔄','Account Transfer':'↔️','Idemitsu':'⛽'};
+  return icons[p] || '💰';
+}
+
+function filterByAccount(acc, el) {
+  document.querySelectorAll('.sidebar-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  currentView = 'all';
+  document.getElementById('filterAccount').value = acc;
+  applyFilters();
+}
+
+function filterByPayment(pay, el) {
+  document.querySelectorAll('.sidebar-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  currentView = 'all';
+  document.getElementById('filterPayment').value = pay;
+  applyFilters();
+}
+
+// ─── Pagination ───────────────────────────────────────────────────────────────
+function prevPage() { if (currentPage > 1) { currentPage--; renderTable(); } }
+function nextPage() { const tp = Math.ceil(filteredRows.length/PAGE_SIZE); if (currentPage < tp) { currentPage++; renderTable(); } }
+
+// ─── Add / Edit ───────────────────────────────────────────────────────────────
+let currentType = 'expense';
+
+function setType(t) {
+  currentType = t;
+  document.getElementById('typeExpense').className = t === 'expense' ? 'active-expense' : '';
+  document.getElementById('typeIncome').className = t === 'income' ? 'active-income' : '';
+  document.getElementById('typeTransfer').className = t === 'transfer' ? 'active-transfer' : '';
+}
+
+function updateSubcategories() {
+  const cat = document.getElementById('fCategory').value;
+  const subs = CATEGORIES[cat] || [];
+  const el = document.getElementById('fSubcategory');
+  el.innerHTML = '<option value="">Select subcategory</option>' + subs.map(s => `<option value="${s}">${s}</option>`).join('');
+}
+
+function openAddModal() {
+  editingRowId = null;
+  document.getElementById('addModalTitle').textContent = 'Add Transaction';
+  document.getElementById('btnDelete').style.display = 'none';
+  resetForm();
+  // Clear scan state
+  document.getElementById('scanPreview').classList.add('hidden');
+  document.getElementById('scanProgress').classList.add('hidden');
+  document.getElementById('scanRawText').classList.add('hidden');
+  document.getElementById('receiptInput').value = '';
+  openModal('addModal');
+}
+
+function resetForm() {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('fDate').value = today;
+  document.getElementById('fAmount').value = '';
+  document.getElementById('fCategory').value = '';
+  document.getElementById('fSubcategory').innerHTML = '<option value="">Select subcategory</option>';
+  document.getElementById('fPaymentMethod').value = '';
+  document.getElementById('fAccount').value = '';
+  document.getElementById('fDescription').value = '';
+  document.getElementById('fPayee').value = '';
+  document.getElementById('fStatus').value = 'Cleared';
+  document.getElementById('fRef').value = '';
+  document.getElementById('fTag').value = '';
+  setType('expense');
+}
+
+function saveEntry() {
+  const date = document.getElementById('fDate').value;
+  const amountRaw = parseFloat(document.getElementById('fAmount').value);
+
+  if (!date) { toast('Date is required', 'error'); return; }
+  if (isNaN(amountRaw) || amountRaw === 0) { toast('Amount is required', 'error'); return; }
+
+  let amount = amountRaw;
+  if (currentType === 'expense' && amount > 0) amount = -amount;
+  if (currentType === 'income' && amount < 0) amount = Math.abs(amount);
+
+  const maxId = allRows.reduce((m, r) => Math.max(m, parseInt(r['Row Id']) || 0), 0);
+
+  if (editingRowId !== null) {
+    const idx = allRows.findIndex(r => r['_id'] === editingRowId);
+    if (idx !== -1) {
+      allRows[idx] = { ...allRows[idx], ...getFormValues(amount) };
+    }
+    toast('Transaction updated', 'success');
+  } else {
+    const newId = maxId + 1;
+    const row = { ...getFormValues(amount), 'Row Id': newId, 'Type Id': '', 'Receipt Picture': '', 'Tax': '', 'Quantity': '', 'Split Total': '', '_id': Date.now() };
+    allRows.unshift(row);
+    toast('Transaction added', 'success');
+  }
+
+  closeModal('addModal');
+  populateFilters();
+  buildSidebar();
+  applyFilters();
+}
+
+function getFormValues(amount) {
+  return {
+    'Date': document.getElementById('fDate').value,
+    'Amount': amount,
+    'Category': document.getElementById('fCategory').value,
+    'Subcategory': document.getElementById('fSubcategory').value,
+    'Payment Method': document.getElementById('fPaymentMethod').value,
+    'Description': document.getElementById('fDescription').value,
+    'Ref/Check No': document.getElementById('fRef').value,
+    'Payee/Payer': document.getElementById('fPayee').value,
+    'Status': document.getElementById('fStatus').value,
+    'Account': document.getElementById('fAccount').value,
+    'Tag': document.getElementById('fTag').value,
+  };
+}
+
+function deleteEntry() {
+  if (!confirm('Delete this transaction?')) return;
+  allRows = allRows.filter(r => r['_id'] !== editingRowId);
+  closeModal('addModal');
+  applyFilters();
+  toast('Transaction deleted', 'success');
+}
+
+// ─── Detail / Edit ────────────────────────────────────────────────────────────
+function showDetail(id) {
+  const row = allRows.find(r => r['_id'] === id);
+  if (!row) return;
+  detailRowId = id;
+  const amt = row['Amount'];
+  const amtStr = (amt >= 0 ? '+' : '') + Number(amt).toLocaleString();
+  const fields = [
+    ['Date', row['Date']], ['Amount', `<span class="${amt >= 0 ? 'amount-pos' : 'amount-neg'}">${amtStr}</span>`],
+    ['Category', row['Category']], ['Subcategory', row['Subcategory']],
+    ['Payment Method', row['Payment Method']], ['Account', row['Account']],
+    ['Description', row['Description']], ['Payee/Payer', row['Payee/Payer']],
+    ['Status', row['Status']], ['Tag', row['Tag']], ['Ref/Check No', row['Ref/Check No']],
+  ].filter(([,v]) => v);
+  document.getElementById('detailBody').innerHTML = fields.map(([k,v]) => `
+    <div class="detail-row"><div class="detail-key">${k}</div><div class="detail-val">${v}</div></div>`).join('');
+  openModal('detailModal');
+}
+
+function editFromDetail() {
+  closeModal('detailModal');
+  const row = allRows.find(r => r['_id'] === detailRowId);
+  if (!row) return;
+  editingRowId = detailRowId;
+  document.getElementById('addModalTitle').textContent = 'Edit Transaction';
+  document.getElementById('btnDelete').style.display = '';
+  const amt = row['Amount'];
+  if (amt > 0) setType('income');
+  else if (row['Category'] === 'Account Transfer') setType('transfer');
+  else setType('expense');
+  document.getElementById('fDate').value = row['Date'] || '';
+  document.getElementById('fAmount').value = Math.abs(amt);
+  document.getElementById('fCategory').value = row['Category'] || '';
+  updateSubcategories();
+  document.getElementById('fSubcategory').value = row['Subcategory'] || '';
+  document.getElementById('fPaymentMethod').value = row['Payment Method'] || '';
+  document.getElementById('fAccount').value = row['Account'] || '';
+  document.getElementById('fDescription').value = row['Description'] || '';
+  document.getElementById('fPayee').value = row['Payee/Payer'] || '';
+  document.getElementById('fStatus').value = row['Status'] || 'Cleared';
+  document.getElementById('fRef').value = row['Ref/Check No'] || '';
+  document.getElementById('fTag').value = row['Tag'] || '';
+  document.getElementById('scanPreview').classList.add('hidden');
+  document.getElementById('scanProgress').classList.add('hidden');
+  document.getElementById('scanRawText').classList.add('hidden');
+  openModal('addModal');
+}
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+function exportCSV() {
+  const csv = toCSV(allRows);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'expensemanager.csv'; a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV exported', 'success');
+}
+
+// ─── Receipt OCR ─────────────────────────────────────────────────────────────
+function handleReceiptFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  processReceiptImage(file);
+}
+
+function processReceiptImage(file) {
+  const preview = document.getElementById('scanPreview');
+  const reader = new FileReader();
+  reader.onload = e => {
+    preview.src = e.target.result;
+    preview.classList.remove('hidden');
+    runOCR(e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function runOCR(imageData) {
+  const progress = document.getElementById('scanProgress');
+  const statusEl = document.getElementById('scanStatus');
+  const fill = document.getElementById('progressFill');
+  const rawEl = document.getElementById('scanRawText');
+
+  progress.classList.remove('hidden');
+  rawEl.classList.add('hidden');
+  statusEl.textContent = 'Loading OCR engine...';
+  fill.style.width = '5%';
+
+  try {
+    const worker = await Tesseract.createWorker('eng', 1, {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          const pct = Math.round((m.progress || 0) * 100);
+          fill.style.width = pct + '%';
+          statusEl.textContent = `Scanning... ${pct}%`;
+        }
+      }
+    });
+
+    const { data: { text } } = await worker.recognize(imageData);
+    await worker.terminate();
+
+    fill.style.width = '100%';
+    statusEl.textContent = 'Done! Extracting data...';
+
+    rawEl.textContent = text;
+    rawEl.classList.remove('hidden');
+
+    parseReceiptText(text);
+
+    setTimeout(() => progress.classList.add('hidden'), 1000);
+  } catch (err) {
+    statusEl.textContent = 'OCR failed: ' + err.message;
+    fill.style.width = '0%';
+  }
+}
+
+function parseReceiptText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const fullText = text.toLowerCase();
+
+  // Extract amount — look for largest currency-like number
+  const amountMatches = text.match(/[\$¥€£₹]?\s*(\d{1,3}(?:[,\s]\d{3})*(?:[.]\d{1,2})?)/g) || [];
+  const amounts = amountMatches
+    .map(m => parseFloat(m.replace(/[^0-9.]/g, '')))
+    .filter(v => v > 0);
+
+  // Prefer "total" line amount
+  let bestAmount = null;
+  for (const line of lines) {
+    if (/total|合計|amount due|grand total/i.test(line)) {
+      const m = line.match(/(\d{1,3}(?:[,]\d{3})*(?:[.]\d{1,2})?)/);
+      if (m) { bestAmount = parseFloat(m[1].replace(/,/g, '')); break; }
+    }
+  }
+  if (!bestAmount && amounts.length) bestAmount = Math.max(...amounts);
+
+  if (bestAmount) document.getElementById('fAmount').value = bestAmount;
+
+  // Extract date
+  const datePatterns = [
+    /(\d{4}[-/]\d{1,2}[-/]\d{1,2})/,
+    /(\d{1,2}[-/]\d{1,2}[-/]\d{4})/,
+    /(\d{1,2}[-/]\d{1,2}[-/]\d{2})/,
+  ];
+  for (const pat of datePatterns) {
+    const m = text.match(pat);
+    if (m) {
+      try {
+        const d = new Date(m[1]);
+        if (!isNaN(d)) { document.getElementById('fDate').value = d.toISOString().slice(0,10); break; }
+      } catch {}
+    }
+  }
+
+  // Extract merchant — usually first few non-numeric lines
+  const merchantLines = lines.slice(0, 5).filter(l => l.length > 3 && !/^\d/.test(l) && !/receipt|invoice|bill/i.test(l));
+  if (merchantLines.length) {
+    if (!document.getElementById('fDescription').value) document.getElementById('fDescription').value = merchantLines[0];
+    if (!document.getElementById('fPayee').value) document.getElementById('fPayee').value = merchantLines[0];
+  }
+
+  // Guess category from keywords
+  const catKeywords = {
+    'Food': ['restaurant','cafe','coffee','food','grocery','groceries','supermarket','sushi','pizza','burger','麺','寿司','ラーメン'],
+    'Utilities': ['electric','gas','water','utility','phone','telephone','internet','ntt'],
+    'Transportation': ['taxi','uber','train','bus','metro','parking','fuel','petrol','gas station'],
+    'Entertainment': ['cinema','movie','theater','bar','pub','entertainment','game'],
+    'Health Care': ['pharmacy','hospital','clinic','doctor','medicine','drug'],
+    'Personal': ['salon','barber','beauty','clothing','clothes','fashion'],
+    'Household': ['ikea','furniture','hardware','home','amazon'],
+  };
+
+  for (const [cat, keywords] of Object.entries(catKeywords)) {
+    if (keywords.some(kw => fullText.includes(kw))) {
+      document.getElementById('fCategory').value = cat;
+      updateSubcategories();
+      break;
+    }
+  }
+
+  toast('Receipt scanned! Please review and confirm the fields.', 'success');
+}
+
+// ─── Drag & Drop ──────────────────────────────────────────────────────────────
+function dragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+function receiptDrop(e) {
+  e.preventDefault(); e.currentTarget.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) processReceiptImage(file);
+}
+function csvDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+function csvDrop(e) {
+  e.preventDefault(); e.currentTarget.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) { document.getElementById('csvFileInput').files = e.dataTransfer.files; loadCSVFile({files:[file]}); }
+}
+
+// Global drag-drop for CSV
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.csv')) {
+    loadCSVFile({files:[file]});
+  }
+});
+
+// ─── Modal helpers ────────────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function openLoadModal() { openModal('loadModal'); }
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { ['addModal','detailModal','loadModal'].forEach(id => closeModal(id)); }
+});
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function toast(msg, type = '') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+// Pre-populate form selects even before CSV load
+(function() {
+  const fCat = document.getElementById('fCategory');
+  fCat.innerHTML = '<option value="">Select category</option>' + Object.keys(CATEGORIES).sort().map(c => `<option value="${c}">${c}</option>`).join('');
+  const fPay = document.getElementById('fPaymentMethod');
+  fPay.innerHTML = '<option value="">Select payment method</option>' + PAYMENT_METHODS.map(p => `<option value="${p}">${p}</option>`).join('');
+})();
+</script>
+</body>
+</html>
