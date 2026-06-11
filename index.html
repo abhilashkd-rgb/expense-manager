@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Expense Manager</title>
 <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root {
     --bg: #0f172a; --surface: #1e293b; --surface2: #273349; --border: #334155;
@@ -145,7 +146,15 @@
   .detail-key { color: var(--text2); font-size: 12px; width: 140px; flex-shrink: 0; }
   .detail-val { font-size: 13px; word-break: break-word; }
 
-  .topbar-actions { display: flex; gap: 8px; }
+  .topbar-actions { display: flex; gap: 8px; align-items: center; }
+  .gdrive-btn { background: #fff; color: #444; border: 1px solid #ddd; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: box-shadow .15s; }
+  .gdrive-btn:hover { box-shadow: 0 1px 6px rgba(0,0,0,.3); }
+  .gdrive-btn.connected { background: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
+  .gdrive-status { font-size: 11px; color: var(--text2); }
+  .sync-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--border); margin-right: 4px; }
+  .sync-indicator.synced { background: var(--green); }
+  .sync-indicator.syncing { background: var(--yellow); animation: pulse .8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 </style>
 </head>
 <body>
@@ -154,7 +163,13 @@
   <div class="topbar">
     <h1>💰 Expense Manager</h1>
     <div class="topbar-actions" id="topbarActions">
-      <button class="btn btn-ghost btn-sm" onclick="openLoadModal()">📂 Load CSV</button>
+      <span id="syncStatus" class="gdrive-status hidden"><span class="sync-indicator" id="syncDot"></span><span id="syncText"></span></span>
+      <button class="gdrive-btn" id="btnGDrive" onclick="gdriveAuth()">
+        <svg width="16" height="16" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>
+        <span id="gdriveLabel">Connect Google Drive</span>
+      </button>
+      <button class="btn btn-ghost btn-sm" onclick="openLoadModal()" id="btnLoadCSV">📂 Load CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="syncToDrive()" id="btnSync" style="display:none">☁ Save to Drive</button>
       <button class="btn btn-primary btn-sm" onclick="openAddModal()" id="btnAdd" style="display:none">+ Add Entry</button>
       <button class="btn btn-ghost btn-sm" onclick="exportCSV()" id="btnExport" style="display:none">⬇ Export CSV</button>
     </div>
@@ -187,8 +202,13 @@
       <div id="uploadState" class="upload-zone">
         <div class="upload-icon">📊</div>
         <div style="font-size:18px;font-weight:600;">Load your expense CSV</div>
-        <div style="color:var(--text2);text-align:center;max-width:320px;">Open your expensemanager.csv file exported from the app. All processing happens locally in your browser.</div>
-        <button class="btn btn-primary" onclick="openLoadModal()">📂 Choose CSV File</button>
+        <div style="color:var(--text2);text-align:center;max-width:320px;">Connect Google Drive to load directly, or choose a local CSV file.</div>
+        <button class="gdrive-btn" style="font-size:15px;padding:10px 20px" onclick="gdriveAuth()">
+          <svg width="20" height="20" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>
+          Load from Google Drive
+        </button>
+        <div style="color:var(--text2);font-size:13px">— or —</div>
+        <button class="btn btn-ghost" onclick="openLoadModal()">📂 Choose Local CSV File</button>
         <div style="color:var(--text2);font-size:12px;">or drag and drop a CSV file anywhere on this page</div>
       </div>
 
@@ -1004,13 +1024,143 @@ function toast(msg, type = '') {
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
-// Pre-populate form selects even before CSV load
 (function() {
   const fCat = document.getElementById('fCategory');
   fCat.innerHTML = '<option value="">Select category</option>' + Object.keys(CATEGORIES).sort().map(c => `<option value="${c}">${c}</option>`).join('');
   const fPay = document.getElementById('fPaymentMethod');
   fPay.innerHTML = '<option value="">Select payment method</option>' + PAYMENT_METHODS.map(p => `<option value="${p}">${p}</option>`).join('');
 })();
+
+// ─── Google Drive Integration ─────────────────────────────────────────────────
+const GDRIVE_CLIENT_ID = '963945218551-0a22amggm4ba39illdlpj8rgdve9fkjv.apps.googleusercontent.com';
+const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const CSV_FILENAME = 'expensemanager.csv';
+
+let gdriveToken = null;
+let gdriveFileId = null;
+let tokenClient = null;
+
+function gdriveAuth() {
+  if (!window.google) { toast('Google Sign-In is still loading, please try again.', 'error'); return; }
+  if (!tokenClient) {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GDRIVE_CLIENT_ID,
+      scope: GDRIVE_SCOPE,
+      callback: async (resp) => {
+        if (resp.error) { toast('Google auth failed: ' + resp.error, 'error'); return; }
+        gdriveToken = resp.access_token;
+        onGDriveConnected();
+      }
+    });
+  }
+  tokenClient.requestAccessToken();
+}
+
+async function onGDriveConnected() {
+  document.getElementById('gdriveLabel').textContent = 'Google Drive';
+  document.getElementById('btnGDrive').classList.add('connected');
+  setSyncStatus('syncing', 'Looking for CSV...');
+  try {
+    await findOrCreateCSV();
+    if (gdriveFileId && allRows.length === 0) {
+      await loadFromDrive();
+    } else {
+      setSyncStatus('synced', 'Drive connected');
+    }
+    document.getElementById('btnSync').style.display = '';
+  } catch (e) {
+    toast('Drive error: ' + e.message, 'error');
+    setSyncStatus('', '');
+  }
+}
+
+async function findOrCreateCSV() {
+  // Search Drive for the CSV file
+  const q = encodeURIComponent(`name='${CSV_FILENAME}' and mimeType='text/csv' and trashed=false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`, {
+    headers: { Authorization: `Bearer ${gdriveToken}` }
+  });
+  const data = await res.json();
+  if (data.files && data.files.length > 0) {
+    // Pick the most recently modified one
+    data.files.sort((a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime));
+    gdriveFileId = data.files[0].id;
+    toast(`Found ${CSV_FILENAME} on Drive`, 'success');
+  } else {
+    gdriveFileId = null;
+    toast('No expensemanager.csv found on Drive. Load a local CSV first, then save to Drive.', '');
+  }
+}
+
+async function loadFromDrive() {
+  if (!gdriveFileId) return;
+  setSyncStatus('syncing', 'Loading from Drive...');
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${gdriveFileId}?alt=media`, {
+      headers: { Authorization: `Bearer ${gdriveToken}` }
+    });
+    const text = await res.text();
+    allRows = parseCSV(text);
+    initApp();
+    setSyncStatus('synced', 'Loaded from Drive');
+    toast(`Loaded ${allRows.length} transactions from Google Drive`, 'success');
+  } catch (e) {
+    toast('Failed to load from Drive: ' + e.message, 'error');
+    setSyncStatus('', '');
+  }
+}
+
+async function syncToDrive() {
+  if (!gdriveToken) { toast('Connect Google Drive first', 'error'); return; }
+  setSyncStatus('syncing', 'Saving to Drive...');
+  try {
+    const csvContent = toCSV(allRows);
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+
+    let url, method;
+    if (gdriveFileId) {
+      url = `https://www.googleapis.com/upload/drive/v3/files/${gdriveFileId}?uploadType=media`;
+      method = 'PATCH';
+    } else {
+      // Create new file with metadata
+      const meta = JSON.stringify({ name: CSV_FILENAME, mimeType: 'text/csv' });
+      const form = new FormData();
+      form.append('metadata', new Blob([meta], { type: 'application/json' }));
+      form.append('file', blob);
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${gdriveToken}` },
+        body: form
+      });
+      const data = await res.json();
+      gdriveFileId = data.id;
+      setSyncStatus('synced', 'Saved to Drive');
+      toast('CSV saved to Google Drive', 'success');
+      return;
+    }
+
+    await fetch(url, {
+      method,
+      headers: { Authorization: `Bearer ${gdriveToken}`, 'Content-Type': 'text/csv' },
+      body: blob
+    });
+    setSyncStatus('synced', 'Saved to Drive');
+    toast('CSV saved to Google Drive', 'success');
+  } catch (e) {
+    toast('Failed to save to Drive: ' + e.message, 'error');
+    setSyncStatus('', '');
+  }
+}
+
+function setSyncStatus(state, text) {
+  const wrap = document.getElementById('syncStatus');
+  const dot = document.getElementById('syncDot');
+  const label = document.getElementById('syncText');
+  if (!state) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  dot.className = 'sync-indicator ' + (state === 'synced' ? 'synced' : state === 'syncing' ? 'syncing' : '');
+  label.textContent = text;
+}
 </script>
 </body>
 </html>
