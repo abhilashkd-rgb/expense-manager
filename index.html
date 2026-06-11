@@ -1054,21 +1054,31 @@ const GDRIVE_FILE_ID = '1r-bPY1wtjm8NDvOGtp79BIcX-Kb0BvDk';
 let gdriveToken = null;
 let tokenClient = null;
 
+function initTokenClient() {
+  if (!window.google || tokenClient) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GDRIVE_CLIENT_ID,
+    scope: GDRIVE_SCOPE,
+    callback: async (resp) => {
+      if (resp.error) { toast('Google auth failed: ' + resp.error, 'error'); return; }
+      gdriveToken = resp.access_token;
+      await loadFromDrive();
+    }
+  });
+}
+
 function gdriveAuth() {
   if (!window.google) { toast('Google Sign-In still loading, please retry in a moment.', 'error'); return; }
-  if (!tokenClient) {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GDRIVE_CLIENT_ID,
-      scope: GDRIVE_SCOPE,
-      callback: async (resp) => {
-        if (resp.error) { toast('Google auth failed: ' + resp.error, 'error'); return; }
-        gdriveToken = resp.access_token;
-        await loadFromDrive();
-      }
-    });
-  }
-  tokenClient.requestAccessToken();
+  initTokenClient();
+  tokenClient.requestAccessToken({ prompt: 'consent' });
 }
+
+// Initialize as soon as Google GSI script loads
+window.addEventListener('load', () => {
+  const interval = setInterval(() => {
+    if (window.google) { initTokenClient(); clearInterval(interval); }
+  }, 200);
+});
 
 async function loadFromDrive() {
   setSyncStatus('syncing', 'Loading from Drive...');
