@@ -388,6 +388,24 @@
   </div>
 </div>
 
+<!-- Drive File Picker Modal -->
+<div class="modal-overlay hidden" id="drivePickerModal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h2>📂 Choose file from Google Drive</h2>
+      <button class="close-btn" onclick="closeModal('drivePickerModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="driveFileList" style="display:flex;flex-direction:column;gap:6px;min-height:80px">
+        <div style="color:var(--text2);text-align:center;padding:24px">Searching Drive...</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('drivePickerModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 let allRows = [];
@@ -1061,13 +1079,14 @@ async function onGDriveConnected() {
   document.getElementById('btnGDrive').classList.add('connected');
   setSyncStatus('syncing', 'Looking for CSV...');
   try {
-    await findOrCreateCSV();
+    const result = await findOrCreateCSV();
+    if (result === 'pick') return; // picker modal is open, will continue via selectDriveFile
     if (gdriveFileId && allRows.length === 0) {
       await loadFromDrive();
-    } else {
+    } else if (gdriveFileId) {
       setSyncStatus('synced', 'Drive connected');
+      document.getElementById('btnSync').style.display = '';
     }
-    document.getElementById('btnSync').style.display = '';
   } catch (e) {
     toast('Drive error: ' + e.message, 'error');
     setSyncStatus('', '');
@@ -1075,21 +1094,57 @@ async function onGDriveConnected() {
 }
 
 async function findOrCreateCSV() {
-  // Search Drive for the CSV file
-  const q = encodeURIComponent(`name='${CSV_FILENAME}' and mimeType='text/csv' and trashed=false`);
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`, {
+  // Search Drive for ANY csv file
+  const q = encodeURIComponent(`(mimeType='text/csv' or name contains '.csv') and trashed=false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime desc&pageSize=50`, {
     headers: { Authorization: `Bearer ${gdriveToken}` }
   });
   const data = await res.json();
   if (data.files && data.files.length > 0) {
-    // Pick the most recently modified one
-    data.files.sort((a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime));
-    gdriveFileId = data.files[0].id;
-    toast(`Found ${CSV_FILENAME} on Drive`, 'success');
+    if (data.files.length === 1) {
+      // Only one CSV — use it directly
+      gdriveFileId = data.files[0].id;
+      toast(`Found ${data.files[0].name} on Drive`, 'success');
+    } else {
+      // Multiple CSVs — let user pick
+      showDrivePicker(data.files);
+      return 'pick';
+    }
   } else {
     gdriveFileId = null;
-    toast('No expensemanager.csv found on Drive. Load a local CSV first, then save to Drive.', '');
+    setSyncStatus('', '');
+    toast('No CSV files found on Drive. Load a local CSV first, then use "☁ Save to Drive".', '');
   }
+}
+
+function showDrivePicker(files) {
+  const list = document.getElementById('driveFileList');
+  list.innerHTML = files.map(f => {
+    const date = new Date(f.modifiedTime).toLocaleDateString();
+    const size = f.size ? (parseInt(f.size) / 1024).toFixed(0) + ' KB' : '';
+    return `<div onclick="selectDriveFile('${f.id}','${f.name.replace(/'/g,"\\'")}')"
+      style="padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;transition:background .15s"
+      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--bg)'">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:18px">📄</span>
+        <div>
+          <div style="font-size:13px;font-weight:500">${f.name}</div>
+          <div style="font-size:11px;color:var(--text2)">Modified ${date} ${size ? '· ' + size : ''}</div>
+        </div>
+      </div>
+      <span style="color:var(--accent);font-size:12px">Select →</span>
+    </div>`;
+  }).join('');
+  openModal('drivePickerModal');
+}
+
+async function selectDriveFile(id, name) {
+  gdriveFileId = id;
+  closeModal('drivePickerModal');
+  document.getElementById('gdriveLabel').textContent = name;
+  document.getElementById('btnGDrive').classList.add('connected');
+  document.getElementById('btnSync').style.display = '';
+  await loadFromDrive();
 }
 
 async function loadFromDrive() {
